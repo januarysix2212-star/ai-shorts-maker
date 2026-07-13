@@ -1,6 +1,5 @@
 import streamlit as st
 import google.generativeai as genai
-import yt_dlp
 from moviepy.editor import VideoFileClip
 import os
 import json
@@ -14,23 +13,9 @@ with st.sidebar:
     api_key = st.text_input("Gemini API 키를 입력하세요:", type="password")
     st.markdown("[🔑 구글 AI 스튜디오에서 키 발급받기](https://aistudio.google.com/)")
 
-st.title("🎬 AI 유튜브 쇼츠 메이커")
-st.markdown("유튜브 링크 하나로 **하이라이트 컷편집 영상**과 **다국어 자막(.srt)**을 한 번에 만드세요!")
+st.title("🎬 AI 쇼츠 메이커 (파일 업로드 버전)")
+st.markdown("직접 다운로드한 **영상 파일**을 올리면, AI가 하이라이트 컷편집과 다국어 자막(.srt)을 만들어 줍니다!")
 st.divider()
-
-# --- 유튜브 영상 다운로드 함수 ---
-def download_video(youtube_url):
-    ydl_opts = {
-        'format': 'bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]',
-        'outtmpl': 'temp_video.%(ext)s',
-        'quiet': True,
-        # 💡 유튜브 403 에러 우회를 위한 위장 옵션 추가
-        'extractor_args': {'youtube': {'player_client': ['android', 'web']}},
-        'nocheckcertificate': True
-    }
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        ydl.download([youtube_url])
-    return "temp_video.mp4"
 
 # --- 자막 시간 변환 함수 ---
 def format_time_srt(seconds):
@@ -52,26 +37,29 @@ def create_srt_file(subtitles_data, filename, lang="ko"):
         f.write(srt_content)
     return filename
 
-# --- 메인 실행 화면 ---
-youtube_url = st.text_input("유튜브 링크를 입력하세요:", placeholder="https://www.youtube.com/watch?v=...")
+# --- 메인 실행 화면 (파일 업로드 방식) ---
+# 기존 URL 입력창 대신 파일 업로드 창으로 변경되었습니다.
+uploaded_video = st.file_uploader("쇼츠로 만들 영상 파일(.mp4)을 업로드해 주세요:", type=["mp4", "mov"])
 
 if st.button("🚀 전체 자동화 시작!"):
     if not api_key:
         st.error("앗! 왼쪽 사이드바에 Gemini API 키를 먼저 입력해 주세요.")
-    elif not youtube_url:
-        st.error("유튜브 링크를 입력해 주세요!")
+    elif not uploaded_video:
+        st.error("영상 파일을 먼저 업로드해 주세요!")
     else:
         try:
             status_text = st.empty()
             
-            # 1. 영상 다운로드
-            status_text.info("1/4: 유튜브 원본 영상을 다운로드 중입니다... 📥")
-            video_file_path = download_video(youtube_url)
+            # 1. 업로드된 파일을 서버에 임시 저장
+            status_text.info("1/3: 업로드하신 영상을 준비하는 중입니다... 📥")
+            video_file_path = "temp_video.mp4"
+            with open(video_file_path, "wb") as f:
+                f.write(uploaded_video.read())
             
             # 2. 제미나이 AI 분석
-            status_text.info("2/4: 제미나이 AI가 영상을 분석하고 기획안을 작성 중입니다... 🧠 (최대 2~3분 소요)")
+            status_text.info("2/3: 제미나이 AI가 영상을 분석하고 기획안을 작성 중입니다... 🧠 (최대 2~3분 소요)")
             genai.configure(api_key=api_key)
-            uploaded_file = genai.upload_file(path=video_file_path)
+            uploaded_file_ai = genai.upload_file(path=video_file_path)
             
             model = genai.GenerativeModel('gemini-1.5-pro')
             prompt = """
@@ -89,11 +77,11 @@ if st.button("🚀 전체 자동화 시작!"):
             주의: subtitles의 start와 end는 원본 영상 기준이 아니라 '잘라낸 쇼츠 영상' 기준(0초부터 시작)으로 작성하세요. 4초 간격으로 나눠주세요.
             """
             
-            response = model.generate_content([uploaded_file, prompt])
-            genai.delete_file(uploaded_file.name)
+            response = model.generate_content([uploaded_file_ai, prompt])
+            genai.delete_file(uploaded_file_ai.name)
             
             # 3. AI 결과물 해석 및 컷편집
-            status_text.info("3/4: AI 기획안을 바탕으로 영상을 컷편집 중입니다... ✂️")
+            status_text.info("3/3: AI 기획안을 바탕으로 영상을 컷편집 중입니다... ✂️")
             raw_text = response.text
             json_match = re.search(r'\{.*\}', raw_text, re.DOTALL)
             if json_match:
@@ -110,7 +98,6 @@ if st.button("🚀 전체 자동화 시작!"):
                 shorts_clip.write_videofile(final_video_name, codec="libx264", audio_codec="aac", temp_audiofile="temp-audio.m4a", remove_temp=True, logger=None)
             
             # 4. 자막 파일 생성
-            status_text.info("4/4: 캡컷용 한국어/일본어 자막 파일을 생성 중입니다... 📝")
             ko_srt = create_srt_file(ai_data["subtitles"], "korean_sub.srt", "ko")
             ja_srt = create_srt_file(ai_data["subtitles"], "japanese_sub.srt", "ja")
             
@@ -134,6 +121,10 @@ if st.button("🚀 전체 자동화 시작!"):
                     st.download_button("🇰🇷 한국어 자막 다운로드 (.srt)", data=k_file, file_name="korean_subtitles.srt", mime="text/plain")
                 with open(ja_srt, "rb") as j_file:
                     st.download_button("🇯🇵 일본어 자막 다운로드 (.srt)", data=j_file, file_name="japanese_subtitles.srt", mime="text/plain")
+
+            # 임시 파일 삭제
+            if os.path.exists(video_file_path):
+                os.remove(video_file_path)
 
         except Exception as e:
             st.error(f"실행 중 오류가 발생했습니다: {e}")
