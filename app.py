@@ -1,5 +1,5 @@
 import streamlit as st
-import google.generativeai as genai
+from google import genai
 from moviepy.editor import VideoFileClip
 import os
 import json
@@ -38,7 +38,6 @@ def create_srt_file(subtitles_data, filename, lang="ko"):
     return filename
 
 # --- 메인 실행 화면 (파일 업로드 방식) ---
-# 기존 URL 입력창 대신 파일 업로드 창으로 변경되었습니다.
 uploaded_video = st.file_uploader("쇼츠로 만들 영상 파일(.mp4)을 업로드해 주세요:", type=["mp4", "mov"])
 
 if st.button("🚀 전체 자동화 시작!"):
@@ -56,12 +55,12 @@ if st.button("🚀 전체 자동화 시작!"):
             with open(video_file_path, "wb") as f:
                 f.write(uploaded_video.read())
             
-            # 2. 제미나이 AI 분석
+            # 2. 제미나이 AI 분석 (최신 SDK 적용)
             status_text.info("2/3: 제미나이 AI가 영상을 분석하고 기획안을 작성 중입니다... 🧠 (최대 2~3분 소요)")
-            genai.configure(api_key=api_key)
-            uploaded_file_ai = genai.upload_file(path=video_file_path)
             
-            model = genai.GenerativeModel('gemini-1.5-pro')
+            client = genai.Client(api_key=api_key)
+            uploaded_file_ai = client.files.upload(file=video_file_path)
+            
             prompt = """
             당신은 천재적인 쇼츠 기획자입니다. 첨부된 영상을 보고 가장 웃기거나 흥미로운 30초~1분 사이의 하이라이트 구간 1개를 찾아주세요.
             반드시 아래의 JSON 형식으로만 답변을 출력해야 합니다. 마크다운이나 다른 텍스트는 절대 넣지 마세요.
@@ -77,8 +76,11 @@ if st.button("🚀 전체 자동화 시작!"):
             주의: subtitles의 start와 end는 원본 영상 기준이 아니라 '잘라낸 쇼츠 영상' 기준(0초부터 시작)으로 작성하세요. 4초 간격으로 나눠주세요.
             """
             
-            response = model.generate_content([uploaded_file_ai, prompt])
-            genai.delete_file(uploaded_file_ai.name)
+            response = client.models.generate_content(
+                model='gemini-1.5-pro',
+                contents=[uploaded_file_ai, prompt]
+            )
+            client.files.delete(name=uploaded_file_ai.name)
             
             # 3. AI 결과물 해석 및 컷편집
             status_text.info("3/3: AI 기획안을 바탕으로 영상을 컷편집 중입니다... ✂️")
