@@ -77,7 +77,7 @@ if st.button("🚀 전체 자동화 시작!"):
             """
             
             response = client.models.generate_content(
-                model='gemini-1.5-pro',
+                model='gemini-1.5-flash',
                 contents=[uploaded_file_ai, prompt]
             )
             client.files.delete(name=uploaded_file_ai.name)
