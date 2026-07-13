@@ -23,7 +23,10 @@ def download_video(youtube_url):
     ydl_opts = {
         'format': 'bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]',
         'outtmpl': 'temp_video.%(ext)s',
-        'quiet': True
+        'quiet': True,
+        # 💡 유튜브 403 에러 우회를 위한 위장 옵션 추가
+        'extractor_args': {'youtube': {'player_client': ['android', 'web']}},
+        'nocheckcertificate': True
     }
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         ydl.download([youtube_url])
